@@ -1,9 +1,4 @@
 # Project files and directories
-data/
-!data/download.sh
-# Logging directory 
-wandb/
-# Model training output directory
-out/
-
 __pycache__/
+stockfish/
+eval.ipynb

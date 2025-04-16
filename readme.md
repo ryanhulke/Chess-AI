@@ -88,13 +88,7 @@ This section describes the configuration variables used in the training script w
 - `dataloader_workers` (int): Number of workers for the train and eval dataloaders.
   
 #### Training Summary
-- Trained a 6M param version of this model on 5.12M examples.
-  - loss: 4.7 (100 batches), 4.0 (10000 batches), 3.83 (20000 batches) 3.79 (30000 batches)
-  - used ~ 200 MB out of 2 TB training data, or 0.01%
-  - training on a potato of a GPU (GTX 1060)
-
-#### Future Work
-- use cloud compute to scale up training data
-- perform scaling analysis to roughly project peak performance
-- train a smaller (1M param) and larger (36M param) one
-- log-log plots
+- Trained a 6.8M param version of this model on 287M examples.
+  - loss: 4.7 (100 batches), 4.0 (10,000 batches), 2.74 (140,000 batches)
+  - trained for 20 hours on A100
+  - final ELO rating: 2118

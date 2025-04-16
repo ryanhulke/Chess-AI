@@ -1,4 +1,3 @@
-#%%
 from contextlib import nullcontext
 import json
 import math
@@ -17,21 +16,20 @@ from torch.nn import functional as F
 from model import BidirectionalPredictor, PredictorConfig
 
 if __name__ == "__main__":
-    init_from = "resume" # set to "resume" to resume training from a saved model, set to "scratch" to start training from scratch
+    init_from = "scratch" # set to "resume" to resume training from a saved model, set to "scratch" to start training from scratch
     resume_src = "train" # set to "train" to resume training from the last training checkpoint, set to "eval" to resume training from the best evaluation checkpoint
 
     assert init_from in {"resume", "scratch"}, "init_from must be either 'resume' or 'scratch'"
     assert resume_src in {"train", "eval"}, "you must decide where to restart from 'train' or 'eval'"
 
-    additional_token_registers = 2 # additional tokens that will be added to the model input
-    train_save_interval = 100
-    eval_interval = 10000
-
+    additional_token_registers = 0 # additional tokens that will be added to the model input
+    train_save_interval = 500
+    eval_interval = 2000
     num_epochs = 1
-    batch_size = 256
+    batch_size = 2048
 
     bipe_scale = 1.25 # batch iterations per epoch scale
-    warmup_steps_ratio = 0.2 # setting it 20% of the first epoch
+    warmup_steps_ratio = 0.1 # setting it 10% of the first epoch
     max_lr = 0.000625
     start_lr = 0.0002
     final_lr = 1.0e-06
@@ -39,11 +37,7 @@ if __name__ == "__main__":
 
     random_seed = 42
 
-    dataloader_workers = 1
-
-    wandb_log = False #True # set to True to log to wandb
-    wandb_project = "searchless-chess"
-    wandb_run_name = "v1-with-regs"
+    dataloader_workers = 2
 
     # create output directory to store trained model
     output_dir = "out"
@@ -54,14 +48,14 @@ if __name__ == "__main__":
     train_model_dir = os.path.join("out", "train")
     os.makedirs(train_model_dir, exist_ok=True)
 
-    train_model_path = os.path.join(train_model_dir, "model.pt")
+    train_model_path = os.path.join(train_model_dir, "model3.pt")
     train_optimizer_path = os.path.join(train_model_dir, "optimizer.pt")
     train_state_path = os.path.join(train_model_dir, "train_state.json")
 
     eval_model_dir = os.path.join("out", "eval")
     os.makedirs(eval_model_dir, exist_ok=True)
 
-    eval_model_path = os.path.join(eval_model_dir, "model.pt")
+    eval_model_path = os.path.join(eval_model_dir, "model3.pt")
     eval_optimizer_path = os.path.join(eval_model_dir, "optimizer.pt")
     eval_state_path = os.path.join(eval_model_dir, "eval_state.json")
 
@@ -78,6 +72,7 @@ if __name__ == "__main__":
 
     test_dataset = ActionValueDataset(test_files, hl_gauss=True, registers= additional_token_registers, fraction=0.05)
 
+    # create model config
     model_config = PredictorConfig(
         n_layer = 8,
         n_embd = 256,
@@ -94,7 +89,6 @@ if __name__ == "__main__":
         random.seed(seed)
         torch.manual_seed(seed)
         np.random.seed(seed)
-
 
     if init_from == "scratch":
         set_seed(random_seed)
@@ -187,10 +181,10 @@ if __name__ == "__main__":
     )
 
     # create dataloader
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=dataloader_workers, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=dataloader_workers, pin_memory=True, prefetch_factor=4)
     train_loader_iter = iter(train_loader)
 
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, num_workers=dataloader_workers, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, num_workers=dataloader_workers, pin_memory=True, prefetch_factor=4)
 
     max_iter_num = num_epochs * train_sampler.batch_iterations_per_epoch
 
@@ -203,42 +197,23 @@ if __name__ == "__main__":
         T_max=int(bipe_scale * num_epochs * train_sampler.batch_iterations_per_epoch),
         step=iter_num 
     )
-
-    if wandb_log:
-        import wandb
-        wandb.init(
-            project=wandb_project, 
-            name=wandb_run_name, 
-            config=
-                {
-                'train_config': {
-                    'num_epochs': num_epochs,
-                    'batch_size': batch_size,
-                    'bipe_scale': bipe_scale,
-                    'warmup_steps_ratio': warmup_steps_ratio,
-                    'start_lr': start_lr,
-                    'max_lr': max_lr,
-                    'final_lr': final_lr,
-                    'grad_clip': grad_clip,
-                },
-                'model_config':  model_config.__dict__ | {"n_params": model.get_num_params()},
-            },
-            resume = True if init_from == "resume" else False
-            )
-
+    
     train_loss = None
     best_eval_loss = train_state.get('best_eval_loss', float("inf"))
+    # At the beginning of your eval script, load or initialize the eval logs
+    eval_log_path = "eval_log.json"
+    if os.path.exists(eval_log_path):
+        with open(eval_log_path, "r") as f:
+            eval_logs = json.load(f)
+    else:
+        eval_logs = []
     p_bar = tqdm(total=max_iter_num, initial=iter_num, desc="Training")
     while iter_num < max_iter_num:
         sequence, return_bucket = next(train_loader_iter)
-        # for sequence, return_bucket in tqdm(train_loader):
         sequence, return_bucket = sequence.to(device, non_blocking=True), return_bucket.to(device, non_blocking=True)
-        #FIXME: maybe split target from sequence
         with type_casting:
             output = model(sequence)
-        # currently the computed  "target logits" are taken from the computed output of the action input
         value_logits = output[:, -1, :]
-        # we only care about the value logits
         train_loss = F.cross_entropy(value_logits, return_bucket)
 
         scaler.scale(train_loss).backward()
@@ -259,7 +234,7 @@ if __name__ == "__main__":
             torch.save(optimizer.state_dict(), train_optimizer_path)
 
             train_state = {
-                'iter_num' : iter_num,
+                'row' : iter_num * batch_size,
             }
 
             with open(train_state_path, "w") as f:
@@ -270,12 +245,9 @@ if __name__ == "__main__":
             with torch.no_grad():
                 for sequence, return_bucket in tqdm(test_loader, leave = False, desc="Evaluating"):
                     sequence, return_bucket = sequence.to(device, non_blocking=True), return_bucket.to(device, non_blocking=True)
-                    #FIXME: maybe split target from sequence
                     with type_casting:
                         output = model(sequence)
-                    # currently the computed  "target logits" are taken from the computed output of the action input
                     value_logits = output[:, -1, :]
-                    # we only care about the value logits
                     mean_eval_loss += F.cross_entropy(value_logits, return_bucket)
                 
             mean_eval_loss /= len(test_loader)
@@ -292,22 +264,6 @@ if __name__ == "__main__":
                 }
                 with open(eval_state_path, "w") as f:
                     json.dump(train_state, f, indent=2)
-                    
-        
-            if wandb_log:
-                wandb.log({
-                    "eval/loss": mean_eval_loss
-                }
-                , step=iter_num*batch_size)
-
-        if wandb_log:
-            wandb.log({
-                'train/loss': train_loss.item(),
-                'lr': _new_lr
-            }
-            , step=iter_num * batch_size)
-        
 
         iter_num += 1
         p_bar.update(1)
-
