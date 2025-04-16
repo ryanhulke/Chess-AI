@@ -24,7 +24,7 @@ stockfish_path = "./stockfish/stockfish-windows-x86-64-avx2.exe"
 output_dir = "out"
 model_config_path = os.path.join(output_dir, "model_config.json")
 
-eval_model_dir = os.path.join("out", "train")
+eval_model_dir = os.path.join("out", "eval")
 model_path = os.path.join(eval_model_dir, "model.pt")
 
 # Load your evaluation model.
@@ -66,7 +66,7 @@ def main():
                    if isfile(join(train_data_dir, f)) and f.startswith("action_value")]
     
     # Use a small fraction to avoid loading the whole dataset (e.g., 0.001 or 0.01)
-    fraction = 0.00001
+    fraction = 0.001
     
     # Create the dataset with hl_gauss=True and no additional registers (set registers=0 for simplicity)
     dataset = ActionValueDataset(train_files, hl_gauss=True, registers=0, fraction=fraction)

@@ -2,3 +2,5 @@
 __pycache__/
 stockfish/
 eval.ipynb
+view.py
+view_data.py

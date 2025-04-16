@@ -1,5 +1,3 @@
-
-#%%
 import os
 import chess
 import torch
@@ -11,7 +9,6 @@ from apache_beam import coders
 
 from bagz import BagReader, BagDataSource
 
-#%%
 CODERS = {
     'fen': coders.StrUtf8Coder(),
     'move': coders.StrUtf8Coder(),
@@ -19,9 +16,7 @@ CODERS = {
     'win_prob': coders.FloatCoder(),
 }
 
-#%%
 _CHESS_FILE = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-
 
 def _compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
   """Returns two dicts converting moves to actions and actions to moves.
@@ -87,8 +82,6 @@ def _compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
 MOVE_TO_ACTION, ACTION_TO_MOVE = _compute_all_possible_actions()
 NUM_ACTIONS = len(MOVE_TO_ACTION)
 
-#%%
-# Tokenizer >>>
 
 _CHARACTERS = [
     '0',
@@ -123,6 +116,7 @@ _CHARACTERS = [
     'w',
     '.',
 ]
+
 BOARD_STATE_VOCAB_SIZE = len(_CHARACTERS)
 
 _CHARACTERS_INDEX = {letter: index for index, letter in enumerate(_CHARACTERS)}
@@ -177,7 +171,7 @@ def tokenize(fen: str):
   indices.extend([_CHARACTERS_INDEX[x] for x in halfmoves_last])
 
   # Three digits for full moves is enough (no game lasts longer than 999
-  # moves).
+  # moves)
   fullmoves += '.' * (3 - len(fullmoves))
   indices.extend([_CHARACTERS_INDEX[x] for x in fullmoves])
 
@@ -185,9 +179,7 @@ def tokenize(fen: str):
 
   return np.asarray(indices, dtype=np.uint8)
 
-# <<< Tokenizer
 
-#%%
 def compute_return_buckets_from_returns(
     returns: np.ndarray,
     bins_edges: np.ndarray,
@@ -254,6 +246,26 @@ def get_uniform_buckets_edges_values(
   values = (full_linspace[:-1] + full_linspace[1:]) / 2
   return edges, values
 
+class ScalarsToHLGauss(nn.Module):
+  def __init__(self, min_value: float, max_value: float, num_bins: int, sigma: float):
+    super().__init__()
+    self.min_value = min_value
+    self.max_value = max_value
+    self.num_bins = num_bins
+    self.sigma = sigma
+    self.support = torch.linspace(
+    min_value, max_value, num_bins + 1, dtype=torch.float32
+    )
+
+  def transform_to_probs(self, target: torch.Tensor) -> torch.Tensor:
+    cdf_evals = erf(
+    (self.support - target.unsqueeze(-1))
+    / (torch.sqrt(torch.tensor(2.0)) * self.sigma)
+    )
+    z = cdf_evals[..., -1] - cdf_evals[..., 0]
+    bin_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
+    return bin_probs / z.unsqueeze(-1)
+
 CODERS = {
     'fen': coders.StrUtf8Coder(),
     'move': coders.StrUtf8Coder(),
@@ -266,68 +278,58 @@ action_value_decoder =  coders.TupleCoder((
     CODERS['move'],
     CODERS['win_prob'],
 ))
-
-import torch
-from torch.utils.data import Dataset
-
 class ActionValueDataset(Dataset):
     """
-    This dataset class reads action_value.bagz files and converts the data into
-    a sequence of state, action, and return bucket.
-    The output is a sequence of the 77 states plus the action and return bucket,
-    and the loss mask which attends to the state and action but not the return bucket.
+    This dataset class reads action_value.bagz files and converts the data into a sequence of state, action, and return bucket.
+    The output is a sequence of the 77 states plus the action and return bucket, and the loss mask which attends to the state and action but not the return bucket.
     """
 
-    def __init__(self, file_paths, fraction=1.0):
-        """
-        :param file_paths: list of paths to .bag files
-        :param hl_gauss: whether to convert return bucket to a "high-level Gaussian" distribution
-        :param registers: how many extra "register" tokens to append
-        :param fraction: fraction of the dataset to keep (0 < fraction <= 1)
-        """
+    def __init__(self, file_paths, hl_gauss=False, registers = 0, fraction=1.0):
         self.file_paths = file_paths
         self.num_return_buckets = 128
+        self.hl_gauss = ScalarsToHLGauss(0.0, float(self.num_return_buckets), self.num_return_buckets, 0.96) if hl_gauss else None
 
-        # Collect lengths of each .bag file
         self.lengths = []
         for file_path in self.file_paths:
-            self.lengths.append(len(BagReader(file_path)))  # total records in each file
+            total = len(BagReader(file_path))
+            self.lengths.append(int(total*fraction))
 
-        # Sum lengths to get total dataset size
-        total_length = sum(self.lengths)
+        self.length = sum(self.lengths)
 
-        # Apply fraction (truncate, no randomization)
-        self.length = int(total_length * fraction)
-
-        # The model expects a sequence length of (states + action)
-        self.sample_sequence_length = SEQUENCE_LENGTH + 1  # (s) + (a)
+        self.sample_sequence_length = SEQUENCE_LENGTH + 1 + registers # (s) + (a) + (r)
 
         self._return_buckets_edges, _ = get_uniform_buckets_edges_values(
             self.num_return_buckets,
         )
 
-        # The loss mask ensures we only train on the return bucket
+        # The loss mask ensures that we only train on the error of the return bucket.
         self._loss_mask = np.full(
-            shape=(self.sample_sequence_length,),
-            fill_value=True,
-            dtype=bool,
-        )
+                shape=(self.sample_sequence_length,),
+                fill_value=True,
+                dtype=bool,
+            )
+
         self._loss_mask[-1] = False
 
-        self.vocab_size = BOARD_STATE_VOCAB_SIZE + NUM_ACTIONS
-        self.action_offset = BOARD_STATE_VOCAB_SIZE
+        self.vocab_size = BOARD_STATE_VOCAB_SIZE + NUM_ACTIONS + registers
 
-    def __len__(self):
-        return self.length
-    
+        self.action_offset = BOARD_STATE_VOCAB_SIZE
+        self.register_offset = self.action_offset + NUM_ACTIONS
+        self.registers = registers
+
+        self.register_ids = None
+        if registers:
+            self.register_ids = np.arange(self.registers) + self.register_offset
+
     def _get_record_index(self, idx):
-        """Given a global index (0..length-1), find which file and which record in that file."""
         for i, length in enumerate(self.lengths):
             if idx < length:
                 return i, idx
             idx -= length
-        raise IndexError(f"Index {idx} is out of range after fraction cutoff.")
 
+    def __len__(self):
+        return self.length
+    
     def _convert(self, sample):
         fen, move, win_prob = action_value_decoder.decode(sample)
 
@@ -335,19 +337,18 @@ class ActionValueDataset(Dataset):
         action = np.asarray([MOVE_TO_ACTION[move] + BOARD_STATE_VOCAB_SIZE], dtype=np.int32)
         return_bucket = _process_win_prob(win_prob, self._return_buckets_edges)[0]
         
+        if self.hl_gauss:
+           return_bucket = self.hl_gauss.transform_to_probs(torch.tensor(return_bucket))
+
         sequence_arr = [state, action]
+        if self.registers:
+            sequence_arr.append(self.register_ids)
 
         sequence = np.concatenate(sequence_arr)
 
-        # Just a sanity check (feel free to remove)
         assert len(sequence) == self.sample_sequence_length
-
         return sequence, return_bucket
 
     def __getitem__(self, idx):
-        if idx >= self.length:
-            raise IndexError(f"Index {idx} is out of range (dataset length={self.length}).")
-
         file_idx, record_idx = self._get_record_index(idx)
-        sample = BagReader(self.file_paths[file_idx])[record_idx]
-        return self._convert(sample)
+        return self._convert(BagReader(self.file_paths[file_idx])[record_idx])
