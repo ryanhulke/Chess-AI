@@ -3,6 +3,11 @@
 Pytorch implementation of the papers [Grandmaster-Level Chess Without Search](https://arxiv.org/pdf/2402.04494) and [Stop Regressing: Training Value Functions via
 Classification for Scalable Deep RL](https://arxiv.org/pdf/2403.03950). A chess model is trained to predict the action value of a given board state and action by converting the value target to a Gaussian distribution and using categorical cross-entropy loss.
 
+## Architecture Overview
+- The transformer is trained on a Gaussian distribution over action-values
+- this allows us to frame it as a classification problem, and we can then use cross-entropy loss
+- using the Gaussian instead of one-hot encoded discrete action-values stabilizes training
+
 
 ## Setup:
 
@@ -44,6 +49,8 @@ data/
 └── download.sh
 ```
 
+
+
 ## Training:
 
 To train the model, run the following command:
@@ -51,9 +58,6 @@ To train the model, run the following command:
 ```bash
 python train.py
 ```
-
-### Training Configuration Variables
-This section describes the configuration variables used in the training script which are found in at the beginning of the `train.py` script.
 
 #### Initialization and Resumption Settings
 - `init_from` (str): Determines whether to start training from scratch or resume from a saved model.
@@ -66,29 +70,7 @@ This section describes the configuration variables used in the training script w
   - **train**: Resume from the last training checkpoint.
   - **eval**: Resume from the best evaluation checkpoint.
   
-#### Model Configuration
-- `additional_token_registers` (int): Additional tokens that will be added to the model input.
-
-#### Training Parameters
-- `train_save_interval` (int): Interval (in batch iterations) at which the training checkpoint is saved.
-- `eval_interval` (int): Interval (in batch iterations) at which the model is evaluated during training.
-- `num_epochs` (int): Number of epochs for training.
-- `batch_size` (int): Number of samples per batch.
-  
-#### Learning Rate and Optimization
-- `bipe_scale` (float): Batch iterations per epoch scale. Can be used to adjust the learning rate schedule.
-- `warmup_steps_ratio` (float): Ratio of warmup iterations to the first epoch.
-- `start_lr` (float): Initial learning rate during warmup.
-- `max_lr` (float): Maximum learning rate at the end of warmup.
-- `final_lr` (float): Final learning rate of the cosine annealing schedule.
-- `grad_clip` (float): Gradient clipping value to prevent exploding gradients.
-
-#### Miscellaneous
-- `random_seed` (int): Random seed for reproducibility.
-- `dataloader_workers` (int): Number of workers for the train and eval dataloaders.
-  
 #### Training Summary
-- Trained a 6.8M param version of this model on 287M examples.
-  - loss: 4.7 (100 batches), 4.0 (10,000 batches), 2.74 (140,000 batches)
-  - trained for 20 hours on A100
-  - final ELO rating: 2118
+- Trained a 6.8M param model on 287M examples, which is only ~2% of the dataset
+- Trained for 20 hours on a single A100
+- final ELO rating: 2118
