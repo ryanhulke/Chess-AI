@@ -1,16 +1,15 @@
 ## Architecture Overview
-- The transformer ([Grandmaster-Level Chess Without Search](https://arxiv.org/pdf/2402.04494)) is trained on a Gaussian distribution over action-values ([Stop Regressing: Training Value Functions via Classification for Scalable Deep RL](https://arxiv.org/pdf/2403.03950))
-- this allows us to frame it as a classification problem, and we can then use cross-entropy loss
+- The transformer is trained on a Gaussian distribution of action-values
+- this allows lets you frame it as a classification problem, and we can then use cross-entropy loss
 - using the Gaussian instead of one-hot encoded discrete action-values stabilizes training
-
 
 ## Setup:
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/ryanhulke/searchless-chess
-cd searchless-chess
+git clone https://github.com/ryanhulke/Chess-AI
+cd Chess-AI
 ```
 
 ### Requirements:
