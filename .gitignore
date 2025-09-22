@@ -2,3 +2,9 @@
 __pycache__/
 stockfish/
 eval.ipynb
+out/
+data/test/
+data/train/
+scripts/
+notes.txt
+out/
