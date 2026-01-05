@@ -2,10 +2,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from dataset import tokenize, MOVE_TO_ACTION, BOARD_STATE_VOCAB_SIZE, get_uniform_buckets_edges_values, extract_rule_states
-
-# number of return buckets used by the model
 NUM_RETURN_BUCKETS = 128
-
 
 @torch.inference_mode()
 def compute_expected_value(logits):
@@ -21,32 +18,14 @@ def compute_expected_value(logits):
     return expected_value  # shape: [B]
 
 def get_move(board, model, device, type_casting, include_rule_states=False):
-    """
-    For a given chess board, evaluate Q(s, a) for every legal move using the action-value predictor.
-    The input sequence is constructed by concatenating the tokenized board state, a move token,
-    and additional register tokens (as used during training).
-    
-    Args:
-        board: Chess board state
-        model: The trained model
-        device: Device to run inference on
-        type_casting: Type casting context
-        include_rule_states: Whether to include rule state tokens
-    
-    Returns the move with the highest expected value.
-    """
-    # tokenize the board state (FEN) into a fixed-length sequence.
     state_tokens = tokenize(board.fen()).astype(np.int32)  # shape: [state_length]
     legal_moves = list(board.legal_moves)
     sequences = []
     move_candidates = []
 
-    # calculate rule state tokens if needed
     rule_tokens = None
     if include_rule_states:
         repetition_state, move_rule_state = extract_rule_states(board.fen())
-        # These need to be offset by the vocab size to match training
-        # Assuming rule states start after action tokens
         rule_states_offset = BOARD_STATE_VOCAB_SIZE + len(MOVE_TO_ACTION)
         rule_tokens = np.array([
             repetition_state + rule_states_offset,
@@ -107,7 +86,6 @@ def get_move(board, model, device, type_casting, include_rule_states=False):
 
 def get_best_move_action_value(board, model, device, type_casting, include_rule_states=False):
     """
-    Get the best move using the action-value predictor.
-    Simply returns the move with the highest expected value.
+    Returns the move with the highest expected value.
     """
     return get_move(board, model, device, type_casting, include_rule_states)

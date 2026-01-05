@@ -9,7 +9,6 @@ from os import listdir
 from os.path import isfile, join
 from dataset import ActionValueDataset
 from schedulers import CosineLearningRateScheduler
-
 import torch
 from torch.nn import functional as F
 
@@ -26,7 +25,7 @@ if __name__ == "__main__":
     train_save_interval = 500
     eval_interval = 2000
     num_epochs = 1
-    batch_size = 2048
+    batch_size = 512
 
     bipe_scale = 1.25 # batch iterations per epoch scale
     warmup_steps_ratio = 0.1 # setting it 10% of the first epoch
@@ -80,7 +79,7 @@ if __name__ == "__main__":
         vocab_size = train_dataset.vocab_size,
         output_size = train_dataset.num_return_buckets,
         block_size = train_dataset.sample_sequence_length,
-        rotary_n_emb = 32,
+        rotary_n_embd = 32,
         dropout = 0.0
     )
 
@@ -94,7 +93,6 @@ if __name__ == "__main__":
         print("Starting training from scratch")
         iter_num = 0
         model = BidirectionalPredictor(model_config)
-
         with open(model_config_path, "w") as f:
             json.dump(model_config.__dict__, f, indent=2)
         train_state = {}
@@ -123,9 +121,7 @@ if __name__ == "__main__":
         else:
             raise ValueError("Model file does not exist")
 
-    if torch.backends.mps.is_available():
-        device_type = 'mps'
-    elif torch.cuda.is_available():
+    if torch.cuda.is_available():
         device_type = 'cuda'
     else:
         device_type = 'cpu'
@@ -139,15 +135,10 @@ if __name__ == "__main__":
     print(f"Type: {dtype}")
     print(f"Using autocast: {device_type not in {'cpu', 'mps'}}")
 
-    scaler = torch.cuda.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
-
     model.to(device)
 
     save_model = model # create a reference to the non-compiled model, it shares the weights with the compiled model. (Compiled models currently can not be loaded)
-    if device == "cuda":
-        model = torch.compile(model)
-    else:
-        model = torch.compile(model, backend="aot_eager")
+    model = torch.compile(model)
 
     # init optimizer
     optimizer = torch.optim.AdamW(model.parameters())
@@ -215,14 +206,12 @@ if __name__ == "__main__":
         value_logits = output[:, -1, :]
         train_loss = F.cross_entropy(value_logits, return_bucket)
 
-        scaler.scale(train_loss).backward()
+        train_loss.backward()
 
         if grad_clip != 0.0:
-            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -233,8 +222,11 @@ if __name__ == "__main__":
             torch.save(optimizer.state_dict(), train_optimizer_path)
 
             train_state = {
-                'row' : iter_num * batch_size,
+                "iter_num": iter_num,
+                "row": iter_num * batch_size,
+                "best_eval_loss": best_eval_loss,
             }
+
 
             with open(train_state_path, "w") as f:
                 json.dump(train_state, f, indent=2)

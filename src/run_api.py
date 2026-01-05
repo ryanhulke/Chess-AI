@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Startup script for the Chess API.
-Run this to start the FastAPI server.
-"""
 import uvicorn
 
 if __name__ == "__main__":

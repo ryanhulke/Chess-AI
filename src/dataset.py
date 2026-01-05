@@ -18,27 +18,20 @@ CODERS = {
 
 _CHESS_FILE = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 
-def _compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
+def compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
   """Returns two dicts converting moves to actions and actions to moves.
 
   These dicts contain all possible chess moves.
   """
   all_moves = []
 
-  # First, deal with the normal moves.
-  # Note that this includes castling, as it is just a rook or king move from one
-  # square to another.
   board = chess.BaseBoard.empty()
   for square in range(64):
     next_squares = []
 
-    # Place the queen and see where it attacks (we don't need to cover the case
-    # for a bishop, rook, or pawn because the queen's moves includes all their
-    # squares).
     board.set_piece_at(square, chess.Piece.from_symbol('Q'))
     next_squares += board.attacks(square)
 
-    # Place knight and see where it attacks
     board.set_piece_at(square, chess.Piece.from_symbol('N'))
     next_squares += board.attacks(square)
     board.remove_piece_at(square)
@@ -48,22 +41,18 @@ def _compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
           chess.square_name(square) + chess.square_name(next_square)
       )
 
-  # Then deal with promotions.
-  # Only look at the last ranks.
   promotion_moves = []
   for rank, next_rank in [('2', '1'), ('7', '8')]:
     for index_file, file in enumerate(_CHESS_FILE):
-      # Normal promotions.
+
       move = f'{file}{rank}{file}{next_rank}'
       promotion_moves += [(move + piece) for piece in ['q', 'r', 'b', 'n']]
 
-      # Capture promotions.
-      # Left side.
+
       if file > 'a':
         next_file = _CHESS_FILE[index_file - 1]
         move = f'{file}{rank}{next_file}{next_rank}'
         promotion_moves += [(move + piece) for piece in ['q', 'r', 'b', 'n']]
-      # Right side.
       if file < 'h':
         next_file = _CHESS_FILE[index_file + 1]
         move = f'{file}{rank}{next_file}{next_rank}'
@@ -79,7 +68,7 @@ def _compute_all_possible_actions() -> tuple[dict[str, int], dict[int, str]]:
   return move_to_action, action_to_move
 
 
-MOVE_TO_ACTION, ACTION_TO_MOVE = _compute_all_possible_actions()
+MOVE_TO_ACTION, ACTION_TO_MOVE = compute_all_possible_actions()
 NUM_ACTIONS = len(MOVE_TO_ACTION)
 
 
@@ -306,11 +295,6 @@ action_value_decoder =  coders.TupleCoder((
     CODERS['win_prob'],
 ))
 class ActionValueDataset(Dataset):
-    """
-    This dataset class reads action_value.bagz files and converts the data into a sequence of state, action, and return bucket.
-    The output is a sequence of the 77 states plus the action and return bucket, and the loss mask which attends to the state and action but not the return bucket.
-    """
-
     def __init__(self, file_paths, hl_gauss=False, registers = 0, fraction=1.0, include_rule_states=False):
         self.file_paths = file_paths
         self.num_return_buckets = 128
@@ -365,7 +349,7 @@ class ActionValueDataset(Dataset):
     def __len__(self):
         return self.length
     
-    def _convert(self, sample):
+    def convert(self, sample):
         fen, move, win_prob = action_value_decoder.decode(sample)
 
         state = tokenize(fen).astype(np.int32)
@@ -393,4 +377,4 @@ class ActionValueDataset(Dataset):
 
     def __getitem__(self, idx):
         file_idx, record_idx = self._get_record_index(idx)
-        return self._convert(BagReader(self.file_paths[file_idx])[record_idx])
+        return self.convert(BagReader(self.file_paths[file_idx])[record_idx])

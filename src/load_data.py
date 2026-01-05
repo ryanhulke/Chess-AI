@@ -1,4 +1,3 @@
-#%%
 import chess
 from apache_beam import coders
 
@@ -6,14 +5,10 @@ import numpy as np
 
 from bagz import BagReader, BagDataSource
 
-#%%
-# This file runs the code of the original ConvertActionValueDataToSequence class
 
-#%%
 file_path = "/ubuntu_data/searchless_chess/data/test/action_value_data.bag"
 file_path = "/ubuntu_data/searchless_chess/data/train/action_value-00000-of-02148_data.bag"
-# %%
-#%%
+
 bagd = BagDataSource(file_path)
 
 _CHARACTERS = [
@@ -49,26 +44,12 @@ _CHARACTERS = [
     'w',
     '.',
 ]
-# pyfmt: enable
+
 _CHARACTERS_INDEX = {letter: index for index, letter in enumerate(_CHARACTERS)}
 _SPACES_CHARACTERS = frozenset({'1', '2', '3', '4', '5', '6', '7', '8'})
 SEQUENCE_LENGTH = 77
 
-#%%
 def tokenize(fen: str):
-  """Returns an array of tokens from a fen string.
-
-  We compute a tokenized representation of the board, from the FEN string.
-  The final array of tokens is a mapping from this string to numbers, which
-  are defined in the dictionary `_CHARACTERS_INDEX`.
-  For the 'en passant' information, we convert the '-' (which means there is
-  no en passant relevant square) to '..', to always have two characters, and
-  a fixed length output.
-
-  Args:
-    fen: The board position in Forsyth-Edwards Notation.
-  """
-  # Extracting the relevant information from the FEN.
   board, side, castling, en_passant, halfmoves_last, fullmoves = fen.split(' ')
   board = board.replace('/', '')
   board = side + board
@@ -86,24 +67,17 @@ def tokenize(fen: str):
   else:
     for char in castling:
       indices.append(_CHARACTERS_INDEX[char])
-    # Padding castling to have exactly 4 characters.
     if len(castling) < 4:
       indices.extend((4 - len(castling)) * [_CHARACTERS_INDEX['.']])
 
   if en_passant == '-':
     indices.extend(2 * [_CHARACTERS_INDEX['.']])
   else:
-    # En passant is a square like 'e3'.
     for char in en_passant:
       indices.append(_CHARACTERS_INDEX[char])
 
-  # Three digits for halfmoves (since last capture) is enough since the game
-  # ends at 50.
   halfmoves_last += '.' * (3 - len(halfmoves_last))
   indices.extend([_CHARACTERS_INDEX[x] for x in halfmoves_last])
-
-  # Three digits for full moves is enough (no game lasts longer than 999
-  # moves).
   fullmoves += '.' * (3 - len(fullmoves))
   indices.extend([_CHARACTERS_INDEX[x] for x in fullmoves])
 
@@ -111,7 +85,6 @@ def tokenize(fen: str):
 
   return np.asarray(indices, dtype=np.uint8)
 
-#%%
 bagr = BagReader(file_path)
 
 CODERS = {
@@ -126,15 +99,8 @@ fen, move, win_prob =  coders.TupleCoder((
     CODERS['win_prob'],
 )).decode(bagr[0])
 
-fen, move, win_prob
-# fen gets converted to state
-# move gets converted to action
-# win_prob gets converted to return_bucket
-
-#%%
 state = tokenize(fen).astype(np.int32)
-state
-#%%
+
 _CHESS_FILE = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 
 
@@ -290,24 +256,11 @@ _loss_mask = np.full(
 _loss_mask[-1] = False
 
 
-#%%
 return_bucket = _process_win_prob(win_prob, _return_buckets_edges)
-
-return_bucket
-
-
-#%%
 sequence = np.concatenate([state, action, return_bucket])
-
-sequence, _loss_mask
 
 assert len(sequence) == _sequence_length
 assert len(_loss_mask) == _sequence_length
-
-
-#%%
-# BEHAVIORAL CLONING
-
 
 file_path = "/ubuntu_data/searchless_chess/data/test/behavioral_cloning_data.bag"
 
@@ -324,58 +277,33 @@ fen, move =  coders.TupleCoder((
     CODERS['move'],
 )).decode(bagr[0])
 
-#%%
 state = tokenize(fen).astype(np.int32)
-state
-
-#%%
 action = np.asarray([MOVE_TO_ACTION[move]], dtype=np.int32)
-
-#%%
 sequence = np.concatenate([state, action])
-
 _sequence_length = SEQUENCE_LENGTH + 1  # (s) + (a)
-
 _loss_mask = np.full(
         shape=(_sequence_length,),
         fill_value=True,
         dtype=bool,
     )
 _loss_mask[-1] = False
-
 assert len(sequence) == _sequence_length
 assert len(_loss_mask) == _sequence_length
-
-
-#%%
 file_path = "/ubuntu_data/searchless_chess/data/test/state_value_data.bag"
-
 bagr = BagReader(file_path)
-
 fen, win_prob = coders.TupleCoder((
     CODERS['fen'],
     CODERS['win_prob'],
 )).decode(bagr[0])
-
-#%%
 state = tokenize(fen).astype(np.int32)
-state
-
-#%%
 return_bucket = _process_win_prob(win_prob, _return_buckets_edges)
-return_bucket
-
-#%%
 sequence = np.concatenate([state, return_bucket])
-
 _sequence_length = SEQUENCE_LENGTH + 1  # (s) + (r)
-
 _loss_mask = np.full(
         shape=(_sequence_length,),
         fill_value=True,
         dtype=bool,
     )
 _loss_mask[-1] = False 
-
 assert len(sequence) == _sequence_length
 assert len(_loss_mask) == _sequence_length

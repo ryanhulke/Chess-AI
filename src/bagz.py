@@ -10,8 +10,6 @@ import os
 import shutil
 import struct
 from typing import Any, SupportsIndex
-
-# from etils import epath
 from typing_extensions import Self
 import zstandard as zstd
 
